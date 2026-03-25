@@ -131,7 +131,10 @@ export async function downloadTracks(
 ): Promise<{ downloaded: number; failed: number }> {
   await mkdir(folder, { recursive: true });
 
-  const firstCover = tracks[0]?.album?.cover;
+  // Shuffle so parallel runs don't compete on the same tracks
+  const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+
+  const firstCover = shuffled[0]?.album?.cover;
   const fallbackCover = firstCover ? await downloadCover(firstCover) : null;
 
   let downloaded = 0;
@@ -139,9 +142,9 @@ export async function downloadTracks(
   let nextIndex = 0;
 
   async function worker(): Promise<void> {
-    while (nextIndex < tracks.length) {
+    while (nextIndex < shuffled.length) {
       const i = nextIndex++;
-      const track = tracks[i];
+      const track = shuffled[i];
       const globalNum = globalOffset + i + 1;
       const artist = artistName(track);
       const label = `[${globalNum}/${globalTotal}] ${track.title} — ${artist}`;
@@ -179,7 +182,7 @@ export async function downloadTracks(
     }
   }
 
-  const workers = Array.from({ length: Math.min(CONCURRENCY, tracks.length) }, () => worker());
+  const workers = Array.from({ length: Math.min(CONCURRENCY, shuffled.length) }, () => worker());
   await Promise.all(workers);
 
   return { downloaded, failed };
