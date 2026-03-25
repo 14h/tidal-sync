@@ -43,7 +43,7 @@ async function ensureAuth(): Promise<TokenData> {
   return token;
 }
 
-async function promptForPlaylist(configPath: string, outputDir: string): Promise<void> {
+async function promptForPlaylist(configPath: string, outputDir: string, quality: string): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   try {
@@ -66,7 +66,7 @@ async function promptForPlaylist(configPath: string, outputDir: string): Promise
 
         const answer = await rl.question(chalk.bold("  Download now? (Y/n): "));
         if (answer.trim().toLowerCase() !== "n") {
-          await syncPlaylists(configPath, outputDir);
+          await syncPlaylists(configPath, outputDir, quality);
         }
       } catch (err) {
         console.error(chalk.red(`  Error: ${(err as Error).message}`));
@@ -85,8 +85,9 @@ program
   .version("1.0.0")
   .option("-o, --output <dir>", "Base output directory (creates flac/ and m4a/ inside)", ".")
   .option("-c, --config <path>", "Path to playlists.json", "./playlists.json")
+  .option("-q, --quality <type>", "Quality to download: flac, m4a, or both", "both")
   .argument("[playlist-url]", "Tidal playlist URL to add and sync")
-  .action(async (playlistUrl: string | undefined, opts: { output: string; config: string }) => {
+  .action(async (playlistUrl: string | undefined, opts: { output: string; config: string; quality: string }) => {
     try {
       const token = await ensureAuth();
       setToken(token);
@@ -105,11 +106,11 @@ program
 
       if (playlistCount === 0) {
         console.log(chalk.yellow("\nNo playlists configured yet.\n"));
-        await promptForPlaylist(opts.config, opts.output);
+        await promptForPlaylist(opts.config, opts.output, opts.quality);
         return;
       }
 
-      await syncPlaylists(opts.config, opts.output);
+      await syncPlaylists(opts.config, opts.output, opts.quality);
     } catch (err) {
       console.error(chalk.red(`\nError: ${(err as Error).message}`));
       process.exit(1);

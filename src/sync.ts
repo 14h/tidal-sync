@@ -60,12 +60,22 @@ export async function addPlaylist(
   }
 }
 
-export async function syncPlaylists(configPath: string, baseDir: string): Promise<void> {
+export async function syncPlaylists(configPath: string, baseDir: string, qualityFilter: string = "both"): Promise<void> {
   const config = await loadConfig(configPath);
   const entries = Object.entries(config);
 
   if (entries.length === 0) {
     console.log(chalk.yellow("No playlists to sync."));
+    return;
+  }
+
+  const selectedQualities = QUALITIES.filter((q) => {
+    if (qualityFilter === "both") return true;
+    return q.folder === qualityFilter;
+  });
+
+  if (selectedQualities.length === 0) {
+    console.log(chalk.red(`Unknown quality "${qualityFilter}". Use: flac, m4a, or both`));
     return;
   }
 
@@ -89,7 +99,7 @@ export async function syncPlaylists(configPath: string, baseDir: string): Promis
   }
 
   // Phase 2: Sync each quality
-  for (const q of QUALITIES) {
+  for (const q of selectedQualities) {
     const outputDir = join(baseDir, q.folder);
     await mkdir(outputDir, { recursive: true });
 
