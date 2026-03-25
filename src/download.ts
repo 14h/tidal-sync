@@ -146,7 +146,7 @@ export async function downloadTracks(
   playlistName: string,
   globalOffset: number,
   globalTotal: number
-): Promise<{ downloaded: number; failed: number }> {
+): Promise<{ downloaded: number; failed: number; syncedIds: number[] }> {
   await mkdir(folder, { recursive: true });
 
   // Pre-fetch cover for the playlist folder
@@ -155,6 +155,7 @@ export async function downloadTracks(
 
   let downloaded = 0;
   let failed = 0;
+  const syncedIds: number[] = [];
 
   for (let i = 0; i < tracks.length; i++) {
     const track = tracks[i];
@@ -176,6 +177,7 @@ export async function downloadTracks(
       if (await fileExists(filePath)) {
         console.log(chalk.gray("    Already downloaded, skipping"));
         downloaded++;
+        syncedIds.push(track.id);
         continue;
       }
 
@@ -194,11 +196,12 @@ export async function downloadTracks(
 
       console.log(chalk.green("    Done"));
       downloaded++;
+      syncedIds.push(track.id);
     } catch (err) {
       console.error(chalk.red(`    Failed: ${(err as Error).message}`));
       failed++;
     }
   }
 
-  return { downloaded, failed };
+  return { downloaded, failed, syncedIds };
 }

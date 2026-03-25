@@ -156,7 +156,7 @@ export async function syncPlaylists(configPath: string, outputDir: string): Prom
 
     const folder = join(outputDir, sanitize(info.name));
 
-    const { downloaded, failed } = await downloadTracks(
+    const { downloaded, failed, syncedIds } = await downloadTracks(
       info.newTracks,
       folder,
       info.name,
@@ -170,9 +170,8 @@ export async function syncPlaylists(configPath: string, outputDir: string): Prom
     // Update state after each playlist
     const allTrackIds = [
       ...(state[info.playlistId] ?? []),
-      ...info.newTracks.filter((_, i) => i < downloaded).map((t) => t.id),
+      ...syncedIds,
     ];
-    // Deduplicate
     state[info.playlistId] = [...new Set(allTrackIds)];
     await saveSyncState(statePath, state);
   }
