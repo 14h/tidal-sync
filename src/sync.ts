@@ -8,8 +8,8 @@ import type { AudioQuality } from "./api.js";
 import type { Track } from "./types.js";
 
 const QUALITIES: { quality: AudioQuality; folder: string; label: string }[] = [
-  { quality: "HI_RES_LOSSLESS", folder: "flac", label: "Master (FLAC)" },
   { quality: "HIGH", folder: "m4a", label: "High (AAC)" },
+  { quality: "HI_RES_LOSSLESS", folder: "flac", label: "Master (FLAC)" },
 ];
 
 interface PlaylistsConfig {

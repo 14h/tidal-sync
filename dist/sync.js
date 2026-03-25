@@ -5,8 +5,8 @@ import ora from "ora";
 import { getPlaylist, getPlaylistTracks } from "./api.js";
 import { downloadTracks, findNewTracks } from "./download.js";
 const QUALITIES = [
-    { quality: "HI_RES_LOSSLESS", folder: "flac", label: "Master (FLAC)" },
     { quality: "HIGH", folder: "m4a", label: "High (AAC)" },
+    { quality: "HI_RES_LOSSLESS", folder: "flac", label: "Master (FLAC)" },
 ];
 function parsePlaylistId(input) {
     const urlMatch = input.match(/playlist\/([a-f0-9-]+)/i);
