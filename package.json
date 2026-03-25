@@ -1,6 +1,6 @@
 {
   "name": "tidal-sync",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "Tidal playlist sync CLI — Master quality",
   "type": "module",
   "main": "dist/index.js",
