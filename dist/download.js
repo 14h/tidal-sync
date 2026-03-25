@@ -11,13 +11,11 @@ function sanitize(name) {
 function artistName(track) {
     return track.artist?.name ?? track.artists[0]?.name ?? "Unknown";
 }
-function buildFilename(track, index, ext) {
-    const num = String(index + 1).padStart(2, "0");
-    return `${num} - ${sanitize(artistName(track))} - ${sanitize(track.title)}${ext}`;
+function buildFilename(track, ext) {
+    return `${sanitize(artistName(track))} - ${sanitize(track.title)}${ext}`;
 }
-function trackMatchPattern(track, index) {
-    const num = String(index + 1).padStart(2, "0");
-    return `${num} - ${sanitize(artistName(track))} - ${sanitize(track.title)}`;
+function trackMatchPattern(track) {
+    return `${sanitize(artistName(track))} - ${sanitize(track.title)}`;
 }
 async function fileExists(path) {
     try {
@@ -36,9 +34,12 @@ export async function findNewTracks(tracks, folder) {
     catch {
         return tracks;
     }
-    return tracks.filter((track, i) => {
-        const pattern = trackMatchPattern(track, i);
-        return !existing.some((f) => f.startsWith(pattern));
+    const onDisk = new Set(existing.map((f) => {
+        const dot = f.lastIndexOf(".");
+        return (dot > 0 ? f.substring(0, dot) : f).normalize();
+    }));
+    return tracks.filter((track) => {
+        return !onDisk.has(trackMatchPattern(track).normalize());
     });
 }
 async function downloadSegments(urls, label) {
@@ -149,7 +150,7 @@ export async function downloadTracks(tracks, folder, playlistName, globalOffset,
             chalk.gray(` — ${artist}`));
         try {
             const stream = await getStreamUrl(track.id, quality);
-            const filename = buildFilename(track, i, stream.fileExtension);
+            const filename = buildFilename(track, stream.fileExtension);
             const filePath = join(folder, filename);
             if (await fileExists(filePath)) {
                 console.log(chalk.gray("    Already downloaded, skipping"));

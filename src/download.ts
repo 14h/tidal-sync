@@ -20,14 +20,12 @@ function artistName(track: Track): string {
   return track.artist?.name ?? track.artists[0]?.name ?? "Unknown";
 }
 
-function buildFilename(track: Track, index: number, ext: string): string {
-  const num = String(index + 1).padStart(2, "0");
-  return `${num} - ${sanitize(artistName(track))} - ${sanitize(track.title)}${ext}`;
+function buildFilename(track: Track, ext: string): string {
+  return `${sanitize(artistName(track))} - ${sanitize(track.title)}${ext}`;
 }
 
-function trackMatchPattern(track: Track, index: number): string {
-  const num = String(index + 1).padStart(2, "0");
-  return `${num} - ${sanitize(artistName(track))} - ${sanitize(track.title)}`;
+function trackMatchPattern(track: Track): string {
+  return `${sanitize(artistName(track))} - ${sanitize(track.title)}`;
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -46,9 +44,14 @@ export async function findNewTracks(tracks: Track[], folder: string): Promise<Tr
   } catch {
     return tracks;
   }
-  return tracks.filter((track, i) => {
-    const pattern = trackMatchPattern(track, i);
-    return !existing.some((f) => f.startsWith(pattern));
+  const onDisk = new Set(
+    existing.map((f) => {
+      const dot = f.lastIndexOf(".");
+      return (dot > 0 ? f.substring(0, dot) : f).normalize();
+    })
+  );
+  return tracks.filter((track) => {
+    return !onDisk.has(trackMatchPattern(track).normalize());
   });
 }
 
@@ -189,7 +192,7 @@ export async function downloadTracks(
 
     try {
       const stream = await getStreamUrl(track.id, quality);
-      const filename = buildFilename(track, i, stream.fileExtension);
+      const filename = buildFilename(track, stream.fileExtension);
       const filePath = join(folder, filename);
 
       if (await fileExists(filePath)) {
