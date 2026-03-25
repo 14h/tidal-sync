@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sL \"https://github.com/14h/tidal-sync/archive/refs/tags/v1.0.1.tar.gz\")",
+      "Bash(shasum -a 256)"
+    ]
+  }
+}
