@@ -1,16 +1,26 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import ora from "ora";
 import { getPlaylist, getPlaylistTracks } from "./api.js";
-import { downloadPlaylist } from "./download.js";
+import { downloadTracks } from "./download.js";
+import type { Track } from "./types.js";
 
 interface PlaylistsConfig {
-  [name: string]: string; // name -> URL or UUID
+  [name: string]: string;
 }
 
 interface SyncState {
-  [playlistId: string]: number[]; // playlist UUID -> array of downloaded track IDs
+  [playlistId: string]: number[];
+}
+
+interface PlaylistSyncInfo {
+  name: string;
+  playlistId: string;
+  url: string;
+  totalTracks: number;
+  newTracks: Track[];
+  syncedCount: number;
 }
 
 function parsePlaylistId(input: string): string {
@@ -33,7 +43,7 @@ async function saveSyncState(statePath: string, state: SyncState): Promise<void>
   await writeFile(statePath, JSON.stringify(state, null, 2));
 }
 
-async function loadConfig(configPath: string): Promise<PlaylistsConfig> {
+export async function loadConfig(configPath: string): Promise<PlaylistsConfig> {
   try {
     const raw = await readFile(configPath, "utf-8");
     return JSON.parse(raw);
@@ -52,62 +62,130 @@ export async function addPlaylist(
   playlistUrl: string
 ): Promise<void> {
   const config = await loadConfig(configPath);
+  const isNew = !(playlistName in config);
   config[playlistName] = playlistUrl;
   await saveConfig(configPath, config);
-  console.log(chalk.green(`  Added "${playlistName}" to ${configPath}`));
+  if (isNew) {
+    console.log(chalk.green(`  Added "${playlistName}" to sync list`));
+  }
 }
 
 export async function syncPlaylists(configPath: string, outputDir: string): Promise<void> {
-  const raw = await readFile(configPath, "utf-8");
-  const config: PlaylistsConfig = JSON.parse(raw);
+  const config = await loadConfig(configPath);
   const entries = Object.entries(config);
 
   if (entries.length === 0) {
-    console.log(chalk.yellow("No playlists configured."));
+    console.log(chalk.yellow("No playlists to sync."));
     return;
   }
 
-  console.log(chalk.cyan(`Syncing ${entries.length} playlist(s)...\n`));
-
+  await mkdir(outputDir, { recursive: true });
   const statePath = join(outputDir, ".sync-state.json");
   const state = await loadSyncState(statePath);
 
-  let totalNew = 0;
-  let totalSkipped = 0;
+  // Phase 1: Fetch all playlists and compute diffs
+  console.log(chalk.cyan.bold("\n  Checking playlists...\n"));
+
+  const playlistInfos: PlaylistSyncInfo[] = [];
 
   for (const [name, urlOrId] of entries) {
     const playlistId = parsePlaylistId(urlOrId);
+    const spinner = ora(`  ${name}`).start();
 
-    const spinner = ora(`Fetching "${name}"...`).start();
     try {
       const playlist = await getPlaylist(playlistId);
       const allTracks = await getPlaylistTracks(playlistId);
-      spinner.succeed(`${name}: ${allTracks.length} total tracks`);
 
       const synced = new Set(state[playlistId] ?? []);
       const newTracks = allTracks.filter((t) => !synced.has(t.id));
 
-      if (newTracks.length === 0) {
-        console.log(chalk.gray(`  No new tracks, skipping.\n`));
-        totalSkipped += allTracks.length;
-        continue;
+      playlistInfos.push({
+        name: playlist.title,
+        playlistId,
+        url: urlOrId,
+        totalTracks: allTracks.length,
+        newTracks,
+        syncedCount: allTracks.length - newTracks.length,
+      });
+
+      if (newTracks.length > 0) {
+        spinner.succeed(
+          `  ${name} — ${chalk.green(`${newTracks.length} new`)} / ${allTracks.length} total`
+        );
+      } else {
+        spinner.succeed(
+          `  ${name} — ${chalk.gray("up to date")} (${allTracks.length} tracks)`
+        );
       }
-
-      console.log(chalk.white(`  ${newTracks.length} new track(s) to download\n`));
-      totalNew += newTracks.length;
-      totalSkipped += allTracks.length - newTracks.length;
-
-      await downloadPlaylist(playlist, newTracks, outputDir);
-
-      // Update state with all current track IDs (new + previously synced)
-      state[playlistId] = allTracks.map((t) => t.id);
-      await saveSyncState(statePath, state);
     } catch (err) {
-      spinner.fail(`${name}: ${(err as Error).message}`);
+      spinner.fail(`  ${name} — ${chalk.red((err as Error).message)}`);
     }
   }
 
+  // Phase 2: Summary
+  const totalNew = playlistInfos.reduce((sum, p) => sum + p.newTracks.length, 0);
+  const totalTracks = playlistInfos.reduce((sum, p) => sum + p.totalTracks, 0);
+  const totalSynced = playlistInfos.reduce((sum, p) => sum + p.syncedCount, 0);
+  const playlistsWithNew = playlistInfos.filter((p) => p.newTracks.length > 0);
+
+  console.log();
   console.log(
-    chalk.cyan(`\nSync complete: ${totalNew} new, ${totalSkipped} already synced`)
+    chalk.bold("  Summary: ") +
+    chalk.white(`${playlistInfos.length} playlists, `) +
+    chalk.white(`${totalTracks} total tracks, `) +
+    chalk.green(`${totalNew} to download, `) +
+    chalk.gray(`${totalSynced} already synced`)
   );
+
+  if (totalNew === 0) {
+    console.log(chalk.green.bold("\n  Everything is up to date!\n"));
+    return;
+  }
+
+  // Phase 3: Download new tracks
+  console.log();
+
+  let globalDownloaded = 0;
+  let globalFailed = 0;
+
+  for (const info of playlistsWithNew) {
+    console.log(
+      chalk.cyan.bold(`\n  ${info.name}`) +
+      chalk.gray(` — ${info.newTracks.length} tracks to download`)
+    );
+
+    const folder = join(outputDir, sanitize(info.name));
+
+    const { downloaded, failed } = await downloadTracks(
+      info.newTracks,
+      folder,
+      info.name,
+      globalDownloaded,
+      totalNew
+    );
+
+    globalDownloaded += downloaded;
+    globalFailed += failed;
+
+    // Update state after each playlist
+    const allTrackIds = [
+      ...(state[info.playlistId] ?? []),
+      ...info.newTracks.filter((_, i) => i < downloaded).map((t) => t.id),
+    ];
+    // Deduplicate
+    state[info.playlistId] = [...new Set(allTrackIds)];
+    await saveSyncState(statePath, state);
+  }
+
+  // Phase 4: Final summary
+  console.log();
+  console.log(chalk.bold("  Done! ") + chalk.green(`${globalDownloaded} downloaded`));
+  if (globalFailed > 0) {
+    console.log(chalk.red(`  ${globalFailed} failed`));
+  }
+  console.log();
+}
+
+function sanitize(name: string): string {
+  return name.replace(/[<>:"/\\|?*]/g, "_").trim();
 }

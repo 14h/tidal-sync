@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.TAP_PAT }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Check if release commit
+        id: check
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          if [[ "$MSG" == Release\ v* ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Bump version, tag, and push
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          CURRENT=$(node -p "require('./package.json').version")
+          IFS='.' read -r major minor patch <<< "$CURRENT"
+          VERSION="$major.$minor.$((patch + 1))"
+
+          # Update package.json
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          git add package.json
+          git commit -m "Release v$VERSION"
+          git tag "v$VERSION"
+          git push
+          git push origin "v$VERSION"
+
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Get tarball SHA256
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          sleep 3
+          SHA=$(curl -sL "https://github.com/14h/tidal-sync/archive/refs/tags/v$VERSION.tar.gz" | shasum -a 256 | awk '{print $1}')
+          echo "SHA=$SHA" >> $GITHUB_ENV
+
+      - name: Update Homebrew tap
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          cd /tmp
+          git clone https://x-access-token:${{ secrets.TAP_PAT }}@github.com/14h/tidal-sync.git
+          cd tidal-sync
+
+          sed -i "s|archive/refs/tags/v.*\.tar\.gz|archive/refs/tags/v$VERSION.tar.gz|" Formula/tidal-sync.rb
+          sed -i "s/sha256 \".*\"/sha256 \"$SHA\"/" Formula/tidal-sync.rb
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add -A
+          git commit -m "Update tidal-sync to v$VERSION"
+          git push

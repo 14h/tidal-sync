@@ -8,14 +8,12 @@ import { decryptSecurityToken, decryptFile } from "./decrypt.js";
 function sanitize(name) {
     return name.replace(/[<>:"/\\|?*]/g, "_").trim();
 }
-function formatTrackNumber(n) {
-    return String(n).padStart(2, "0");
+function artistName(track) {
+    return track.artist?.name ?? track.artists[0]?.name ?? "Unknown";
 }
 function buildFilename(track, index, ext) {
-    const num = formatTrackNumber(index + 1);
-    const artist = sanitize(track.artist?.name ?? track.artists[0]?.name ?? "Unknown");
-    const title = sanitize(track.title);
-    return `${num} - ${artist} - ${title}${ext}`;
+    const num = String(index + 1).padStart(2, "0");
+    return `${num} - ${sanitize(artistName(track))} - ${sanitize(track.title)}${ext}`;
 }
 async function fileExists(path) {
     try {
@@ -26,21 +24,52 @@ async function fileExists(path) {
         return false;
     }
 }
-async function downloadSegments(urls) {
+async function downloadSegments(urls, label) {
     const chunks = [];
-    const bar = new cliProgress.SingleBar({
-        format: "  {bar} {percentage}% | {value}/{total} segments",
-        hideCursor: true,
-    }, cliProgress.Presets.shades_classic);
-    bar.start(urls.length, 0);
-    for (const url of urls) {
-        const res = await fetch(url);
+    if (urls.length === 1) {
+        // Single URL — show byte progress
+        const res = await fetch(urls[0]);
         if (!res.ok)
-            throw new Error(`Segment download failed: ${res.status}`);
-        chunks.push(Buffer.from(await res.arrayBuffer()));
-        bar.increment();
+            throw new Error(`Download failed: ${res.status}`);
+        const total = Number(res.headers.get("content-length") || 0);
+        const reader = res.body.getReader();
+        let received = 0;
+        const bar = new cliProgress.SingleBar({
+            format: `  ${chalk.gray("{bar}")} {percentage}% | {received} MB`,
+            hideCursor: true,
+            barsize: 25,
+        }, cliProgress.Presets.shades_classic);
+        if (total > 0)
+            bar.start(total, 0, { received: "0.0" });
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done)
+                break;
+            chunks.push(Buffer.from(value));
+            received += value.length;
+            if (total > 0)
+                bar.update(received, { received: (received / 1048576).toFixed(1) });
+        }
+        if (total > 0)
+            bar.stop();
     }
-    bar.stop();
+    else {
+        // Multi-segment
+        const bar = new cliProgress.SingleBar({
+            format: `  ${chalk.gray("{bar}")} {percentage}% | {value}/{total} segments`,
+            hideCursor: true,
+            barsize: 25,
+        }, cliProgress.Presets.shades_classic);
+        bar.start(urls.length, 0);
+        for (const url of urls) {
+            const res = await fetch(url);
+            if (!res.ok)
+                throw new Error(`Segment download failed: ${res.status}`);
+            chunks.push(Buffer.from(await res.arrayBuffer()));
+            bar.increment();
+        }
+        bar.stop();
+    }
     return Buffer.concat(chunks);
 }
 async function setMetadata(filePath, track, index, coverData) {
@@ -77,60 +106,58 @@ async function setMetadata(filePath, track, index, coverData) {
         file.dispose();
     }
     catch (err) {
-        console.warn(chalk.yellow(`  Warning: Could not set metadata — ${err.message}`));
+        console.warn(chalk.yellow(`    Warning: metadata failed — ${err.message}`));
     }
 }
-export async function downloadPlaylist(playlist, tracks, outputDir) {
-    const folder = join(outputDir, sanitize(playlist.title));
+/**
+ * Download a list of tracks into a folder.
+ * Returns counts of downloaded and failed tracks.
+ *
+ * @param globalOffset - number of tracks already downloaded across all playlists (for global counter)
+ * @param globalTotal - total tracks to download across all playlists
+ */
+export async function downloadTracks(tracks, folder, playlistName, globalOffset, globalTotal) {
     await mkdir(folder, { recursive: true });
-    console.log(chalk.cyan(`\nPlaylist: ${playlist.title}`));
-    console.log(chalk.gray(`Tracks: ${tracks.length} | Folder: ${folder}\n`));
-    // Download cover once for reuse
-    const coverImageId = playlist.squareImage || playlist.image;
-    const coverData = coverImageId ? await downloadCover(coverImageId) : null;
-    if (coverData) {
-        await fsWriteFile(join(folder, "cover.jpg"), coverData);
-    }
+    // Pre-fetch cover for the playlist folder
+    const firstCover = tracks[0]?.album?.cover;
+    const fallbackCover = firstCover ? await downloadCover(firstCover) : null;
     let downloaded = 0;
-    let skipped = 0;
     let failed = 0;
     for (let i = 0; i < tracks.length; i++) {
         const track = tracks[i];
-        const artistName = track.artist?.name ?? track.artists[0]?.name ?? "Unknown";
-        console.log(chalk.white(`[${i + 1}/${tracks.length}] `) +
-            chalk.bold(track.title) +
-            chalk.gray(` — ${artistName}`));
+        const globalNum = globalOffset + i + 1;
+        const artist = artistName(track);
+        // Show: [global/globalTotal] track — artist  (playlist)
+        console.log(chalk.white.bold(`  [${globalNum}/${globalTotal}] `) +
+            chalk.white(track.title) +
+            chalk.gray(` — ${artist}`));
         try {
             const stream = await getStreamUrl(track.id);
             const filename = buildFilename(track, i, stream.fileExtension);
             const filePath = join(folder, filename);
             if (await fileExists(filePath)) {
-                console.log(chalk.yellow("  Skipped (already exists)"));
-                skipped++;
+                console.log(chalk.gray("    Already downloaded, skipping"));
+                downloaded++;
                 continue;
             }
-            // Download all segments and concatenate
-            const data = await downloadSegments(stream.urls);
-            // Write to file
+            const data = await downloadSegments(stream.urls, track.title);
             await fsWriteFile(filePath, data);
-            // Decrypt if needed
             if (stream.encryptionKey) {
                 const { key, nonce } = decryptSecurityToken(stream.encryptionKey);
                 await decryptFile(filePath, key, nonce);
             }
-            // Tag metadata (only for flac/m4a, not raw containers)
             const trackCover = track.album.cover
                 ? await downloadCover(track.album.cover)
-                : coverData;
+                : fallbackCover;
             await setMetadata(filePath, track, i, trackCover);
-            console.log(chalk.green("  Done"));
+            console.log(chalk.green("    Done"));
             downloaded++;
         }
         catch (err) {
-            console.error(chalk.red(`  Error: ${err.message}`));
+            console.error(chalk.red(`    Failed: ${err.message}`));
             failed++;
         }
     }
-    console.log(chalk.cyan(`\nComplete: ${downloaded} downloaded, ${skipped} skipped, ${failed} failed`));
+    return { downloaded, failed };
 }
 //# sourceMappingURL=download.js.map
