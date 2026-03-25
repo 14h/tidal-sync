@@ -12,7 +12,7 @@ import type {
 } from "./types.js";
 
 const API_BASE = "https://api.tidalhifi.com/v1";
-const QUALITY = "HI_RES_LOSSLESS";
+export type AudioQuality = "HI_RES_LOSSLESS" | "HIGH";
 const MAX_RETRIES = 3;
 const RATE_LIMIT_WAIT = 20_000;
 
@@ -95,13 +95,13 @@ export async function getPlaylistTracks(id: string): Promise<Track[]> {
 
 // --- Streams ---
 
-export async function getStreamUrl(trackId: number): Promise<StreamUrl> {
+export async function getStreamUrl(trackId: number, quality: AudioQuality = "HI_RES_LOSSLESS"): Promise<StreamUrl> {
   await randomDelay();
 
   const stream = await apiGet<StreamResponse>(
     `tracks/${trackId}/playbackinfopostpaywall`,
     {
-      audioquality: QUALITY,
+      audioquality: quality,
       playbackmode: "STREAM",
       assetpresentation: "FULL",
     }

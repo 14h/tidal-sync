@@ -83,7 +83,7 @@ program
   .name("tidal-sync")
   .description("Sync Tidal playlists at Master quality")
   .version("1.0.0")
-  .option("-o, --output <dir>", "Output directory", "./download")
+  .option("-o, --output <dir>", "Base output directory (creates flac/ and m4a/ inside)", ".")
   .option("-c, --config <path>", "Path to playlists.json", "./playlists.json")
   .argument("[playlist-url]", "Tidal playlist URL to add and sync")
   .action(async (playlistUrl: string | undefined, opts: { output: string; config: string }) => {

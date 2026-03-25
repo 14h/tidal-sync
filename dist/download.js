@@ -133,7 +133,7 @@ async function setMetadata(filePath, track, index, coverData) {
  * @param globalOffset - number of tracks already downloaded across all playlists (for global counter)
  * @param globalTotal - total tracks to download across all playlists
  */
-export async function downloadTracks(tracks, folder, playlistName, globalOffset, globalTotal) {
+export async function downloadTracks(tracks, folder, playlistName, globalOffset, globalTotal, quality = "HI_RES_LOSSLESS") {
     await mkdir(folder, { recursive: true });
     // Pre-fetch cover for the playlist folder
     const firstCover = tracks[0]?.album?.cover;
@@ -148,7 +148,7 @@ export async function downloadTracks(tracks, folder, playlistName, globalOffset,
             chalk.white(track.title) +
             chalk.gray(` — ${artist}`));
         try {
-            const stream = await getStreamUrl(track.id);
+            const stream = await getStreamUrl(track.id, quality);
             const filename = buildFilename(track, i, stream.fileExtension);
             const filePath = join(folder, filename);
             if (await fileExists(filePath)) {

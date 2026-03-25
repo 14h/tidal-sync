@@ -8,6 +8,7 @@ import {
   getTrackContributors,
   downloadCover,
 } from "./api.js";
+import type { AudioQuality } from "./api.js";
 import { decryptSecurityToken, decryptFile } from "./decrypt.js";
 import type { Track } from "./types.js";
 
@@ -163,7 +164,8 @@ export async function downloadTracks(
   folder: string,
   playlistName: string,
   globalOffset: number,
-  globalTotal: number
+  globalTotal: number,
+  quality: AudioQuality = "HI_RES_LOSSLESS"
 ): Promise<{ downloaded: number; failed: number }> {
   await mkdir(folder, { recursive: true });
 
@@ -186,7 +188,7 @@ export async function downloadTracks(
     );
 
     try {
-      const stream = await getStreamUrl(track.id);
+      const stream = await getStreamUrl(track.id, quality);
       const filename = buildFilename(track, i, stream.fileExtension);
       const filePath = join(folder, filename);
 

@@ -1,5 +1,4 @@
 const API_BASE = "https://api.tidalhifi.com/v1";
-const QUALITY = "HI_RES_LOSSLESS";
 const MAX_RETRIES = 3;
 const RATE_LIMIT_WAIT = 20_000;
 let token;
@@ -62,10 +61,10 @@ export async function getPlaylistTracks(id) {
     return tracks;
 }
 // --- Streams ---
-export async function getStreamUrl(trackId) {
+export async function getStreamUrl(trackId, quality = "HI_RES_LOSSLESS") {
     await randomDelay();
     const stream = await apiGet(`tracks/${trackId}/playbackinfopostpaywall`, {
-        audioquality: QUALITY,
+        audioquality: quality,
         playbackmode: "STREAM",
         assetpresentation: "FULL",
     });
