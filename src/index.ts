@@ -9,6 +9,22 @@ import { setToken, getPlaylist, getPlaylistTracks } from "./api.js";
 import { syncPlaylists, addPlaylist, loadConfig } from "./sync.js";
 import type { TokenData } from "./types.js";
 
+async function askQuality(): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  console.log();
+  console.log(chalk.bold("  Download quality:"));
+  console.log("  1) m4a");
+  console.log("  2) flac");
+  console.log("  3) both");
+  console.log();
+  const answer = await rl.question(chalk.bold("  Choice (1/2/3): "));
+  rl.close();
+  const choice = answer.trim();
+  if (choice === "1" || choice === "m4a") return "m4a";
+  if (choice === "2" || choice === "flac") return "flac";
+  return "both";
+}
+
 function parsePlaylistId(input: string): string {
   const urlMatch = input.match(/playlist\/([a-f0-9-]+)/i);
   if (urlMatch) return urlMatch[1];
@@ -85,7 +101,7 @@ program
   .version("1.0.0")
   .option("-o, --output <dir>", "Base output directory (creates flac/ and m4a/ inside)", ".")
   .option("-c, --config <path>", "Path to playlists.json", "./playlists.json")
-  .option("-q, --quality <type>", "Quality to download: flac, m4a, or both", "both")
+  .option("-q, --quality <type>", "Quality to download: flac, m4a, or both")
   .argument("[playlist-url]", "Tidal playlist URL to add and sync")
   .action(async (playlistUrl: string | undefined, opts: { output: string; config: string; quality: string }) => {
     try {
@@ -101,16 +117,18 @@ program
         await addPlaylist(opts.config, playlist.title, playlistUrl);
       }
 
+      const quality = opts.quality ?? await askQuality();
+
       const config = await loadConfig(opts.config);
       const playlistCount = Object.keys(config).length;
 
       if (playlistCount === 0) {
         console.log(chalk.yellow("\nNo playlists configured yet.\n"));
-        await promptForPlaylist(opts.config, opts.output, opts.quality);
+        await promptForPlaylist(opts.config, opts.output, quality);
         return;
       }
 
-      await syncPlaylists(opts.config, opts.output, opts.quality);
+      await syncPlaylists(opts.config, opts.output, quality);
     } catch (err) {
       console.error(chalk.red(`\nError: ${(err as Error).message}`));
       process.exit(1);
