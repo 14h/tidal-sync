@@ -2,7 +2,7 @@ class TidalSync < Formula
   desc "Tidal playlist sync CLI — Master quality"
   homepage "https://github.com/14h/tidal-sync"
   url "https://github.com/14h/tidal-sync/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "1fa29eada6843ada21054d83aa92042043feca19d75b591dc53d27c17b10c6bc"
+  sha256 "18ca0d772ecc4197d9d19a4d464c01b773d37ec3611f25f1828f43b7e80aec6e"
   license "Apache-2.0"
 
   depends_on "node"
