@@ -1,4 +1,5 @@
 import type { Track } from "./types.js";
+export declare function findNewTracks(tracks: Track[], folder: string): Promise<Track[]>;
 /**
  * Download a list of tracks into a folder.
  * Returns counts of downloaded and failed tracks.

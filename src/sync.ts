@@ -3,15 +3,11 @@ import { join } from "node:path";
 import chalk from "chalk";
 import ora from "ora";
 import { getPlaylist, getPlaylistTracks } from "./api.js";
-import { downloadTracks } from "./download.js";
+import { downloadTracks, findNewTracks } from "./download.js";
 import type { Track } from "./types.js";
 
 interface PlaylistsConfig {
   [name: string]: string;
-}
-
-interface SyncState {
-  [playlistId: string]: number[];
 }
 
 interface PlaylistSyncInfo {
@@ -30,18 +26,6 @@ function parsePlaylistId(input: string): string {
   throw new Error(`Could not parse playlist ID from: ${input}`);
 }
 
-async function loadSyncState(statePath: string): Promise<SyncState> {
-  try {
-    const raw = await readFile(statePath, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-async function saveSyncState(statePath: string, state: SyncState): Promise<void> {
-  await writeFile(statePath, JSON.stringify(state, null, 2));
-}
 
 export async function loadConfig(configPath: string): Promise<PlaylistsConfig> {
   try {
@@ -80,10 +64,8 @@ export async function syncPlaylists(configPath: string, outputDir: string): Prom
   }
 
   await mkdir(outputDir, { recursive: true });
-  const statePath = join(outputDir, ".sync-state.json");
-  const state = await loadSyncState(statePath);
 
-  // Phase 1: Fetch all playlists and compute diffs
+  // Phase 1: Fetch all playlists and compare against files on disk
   console.log(chalk.cyan.bold("\n  Checking playlists...\n"));
 
   const playlistInfos: PlaylistSyncInfo[] = [];
@@ -96,8 +78,8 @@ export async function syncPlaylists(configPath: string, outputDir: string): Prom
       const playlist = await getPlaylist(playlistId);
       const allTracks = await getPlaylistTracks(playlistId);
 
-      const synced = new Set(state[playlistId] ?? []);
-      const newTracks = allTracks.filter((t) => !synced.has(t.id));
+      const folder = join(outputDir, sanitize(playlist.title));
+      const newTracks = await findNewTracks(allTracks, folder);
 
       playlistInfos.push({
         name: playlist.title,
@@ -156,7 +138,7 @@ export async function syncPlaylists(configPath: string, outputDir: string): Prom
 
     const folder = join(outputDir, sanitize(info.name));
 
-    const { downloaded, failed, syncedIds } = await downloadTracks(
+    const { downloaded, failed } = await downloadTracks(
       info.newTracks,
       folder,
       info.name,
@@ -166,14 +148,6 @@ export async function syncPlaylists(configPath: string, outputDir: string): Prom
 
     globalDownloaded += downloaded;
     globalFailed += failed;
-
-    // Update state after each playlist
-    const allTrackIds = [
-      ...(state[info.playlistId] ?? []),
-      ...syncedIds,
-    ];
-    state[info.playlistId] = [...new Set(allTrackIds)];
-    await saveSyncState(statePath, state);
   }
 
   // Phase 4: Final summary

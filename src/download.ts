@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile as fsWriteFile } from "node:fs/promises";
+import { mkdir, readdir, stat, writeFile as fsWriteFile } from "node:fs/promises";
 import { join } from "node:path";
 import { File } from "node-taglib-sharp";
 import chalk from "chalk";
@@ -24,6 +24,11 @@ function buildFilename(track: Track, index: number, ext: string): string {
   return `${num} - ${sanitize(artistName(track))} - ${sanitize(track.title)}${ext}`;
 }
 
+function trackMatchPattern(track: Track, index: number): string {
+  const num = String(index + 1).padStart(2, "0");
+  return `${num} - ${sanitize(artistName(track))} - ${sanitize(track.title)}`;
+}
+
 async function fileExists(path: string): Promise<boolean> {
   try {
     await stat(path);
@@ -31,6 +36,19 @@ async function fileExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function findNewTracks(tracks: Track[], folder: string): Promise<Track[]> {
+  let existing: string[];
+  try {
+    existing = await readdir(folder);
+  } catch {
+    return tracks;
+  }
+  return tracks.filter((track, i) => {
+    const pattern = trackMatchPattern(track, i);
+    return !existing.some((f) => f.startsWith(pattern));
+  });
 }
 
 async function downloadSegments(urls: string[], label: string): Promise<Buffer> {
@@ -146,7 +164,7 @@ export async function downloadTracks(
   playlistName: string,
   globalOffset: number,
   globalTotal: number
-): Promise<{ downloaded: number; failed: number; syncedIds: number[] }> {
+): Promise<{ downloaded: number; failed: number }> {
   await mkdir(folder, { recursive: true });
 
   // Pre-fetch cover for the playlist folder
@@ -155,14 +173,12 @@ export async function downloadTracks(
 
   let downloaded = 0;
   let failed = 0;
-  const syncedIds: number[] = [];
 
   for (let i = 0; i < tracks.length; i++) {
     const track = tracks[i];
     const globalNum = globalOffset + i + 1;
     const artist = artistName(track);
 
-    // Show: [global/globalTotal] track — artist  (playlist)
     console.log(
       chalk.white.bold(`  [${globalNum}/${globalTotal}] `) +
       chalk.white(track.title) +
@@ -177,7 +193,6 @@ export async function downloadTracks(
       if (await fileExists(filePath)) {
         console.log(chalk.gray("    Already downloaded, skipping"));
         downloaded++;
-        syncedIds.push(track.id);
         continue;
       }
 
@@ -196,12 +211,11 @@ export async function downloadTracks(
 
       console.log(chalk.green("    Done"));
       downloaded++;
-      syncedIds.push(track.id);
     } catch (err) {
       console.error(chalk.red(`    Failed: ${(err as Error).message}`));
       failed++;
     }
   }
 
-  return { downloaded, failed, syncedIds };
+  return { downloaded, failed };
 }

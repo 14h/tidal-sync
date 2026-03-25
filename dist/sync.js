@@ -3,7 +3,7 @@ import { join } from "node:path";
 import chalk from "chalk";
 import ora from "ora";
 import { getPlaylist, getPlaylistTracks } from "./api.js";
-import { downloadTracks } from "./download.js";
+import { downloadTracks, findNewTracks } from "./download.js";
 function parsePlaylistId(input) {
     const urlMatch = input.match(/playlist\/([a-f0-9-]+)/i);
     if (urlMatch)
@@ -11,18 +11,6 @@ function parsePlaylistId(input) {
     if (/^[a-f0-9-]+$/i.test(input))
         return input;
     throw new Error(`Could not parse playlist ID from: ${input}`);
-}
-async function loadSyncState(statePath) {
-    try {
-        const raw = await readFile(statePath, "utf-8");
-        return JSON.parse(raw);
-    }
-    catch {
-        return {};
-    }
-}
-async function saveSyncState(statePath, state) {
-    await writeFile(statePath, JSON.stringify(state, null, 2));
 }
 export async function loadConfig(configPath) {
     try {
@@ -53,9 +41,7 @@ export async function syncPlaylists(configPath, outputDir) {
         return;
     }
     await mkdir(outputDir, { recursive: true });
-    const statePath = join(outputDir, ".sync-state.json");
-    const state = await loadSyncState(statePath);
-    // Phase 1: Fetch all playlists and compute diffs
+    // Phase 1: Fetch all playlists and compare against files on disk
     console.log(chalk.cyan.bold("\n  Checking playlists...\n"));
     const playlistInfos = [];
     for (const [name, urlOrId] of entries) {
@@ -64,8 +50,8 @@ export async function syncPlaylists(configPath, outputDir) {
         try {
             const playlist = await getPlaylist(playlistId);
             const allTracks = await getPlaylistTracks(playlistId);
-            const synced = new Set(state[playlistId] ?? []);
-            const newTracks = allTracks.filter((t) => !synced.has(t.id));
+            const folder = join(outputDir, sanitize(playlist.title));
+            const newTracks = await findNewTracks(allTracks, folder);
             playlistInfos.push({
                 name: playlist.title,
                 playlistId,
@@ -111,14 +97,6 @@ export async function syncPlaylists(configPath, outputDir) {
         const { downloaded, failed } = await downloadTracks(info.newTracks, folder, info.name, globalDownloaded, totalNew);
         globalDownloaded += downloaded;
         globalFailed += failed;
-        // Update state after each playlist
-        const allTrackIds = [
-            ...(state[info.playlistId] ?? []),
-            ...info.newTracks.filter((_, i) => i < downloaded).map((t) => t.id),
-        ];
-        // Deduplicate
-        state[info.playlistId] = [...new Set(allTrackIds)];
-        await saveSyncState(statePath, state);
     }
     // Phase 4: Final summary
     console.log();

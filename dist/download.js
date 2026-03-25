@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile as fsWriteFile } from "node:fs/promises";
+import { mkdir, readdir, stat, writeFile as fsWriteFile } from "node:fs/promises";
 import { join } from "node:path";
 import { File } from "node-taglib-sharp";
 import chalk from "chalk";
@@ -15,6 +15,10 @@ function buildFilename(track, index, ext) {
     const num = String(index + 1).padStart(2, "0");
     return `${num} - ${sanitize(artistName(track))} - ${sanitize(track.title)}${ext}`;
 }
+function trackMatchPattern(track, index) {
+    const num = String(index + 1).padStart(2, "0");
+    return `${num} - ${sanitize(artistName(track))} - ${sanitize(track.title)}`;
+}
 async function fileExists(path) {
     try {
         await stat(path);
@@ -23,6 +27,19 @@ async function fileExists(path) {
     catch {
         return false;
     }
+}
+export async function findNewTracks(tracks, folder) {
+    let existing;
+    try {
+        existing = await readdir(folder);
+    }
+    catch {
+        return tracks;
+    }
+    return tracks.filter((track, i) => {
+        const pattern = trackMatchPattern(track, i);
+        return !existing.some((f) => f.startsWith(pattern));
+    });
 }
 async function downloadSegments(urls, label) {
     const chunks = [];
@@ -127,7 +144,6 @@ export async function downloadTracks(tracks, folder, playlistName, globalOffset,
         const track = tracks[i];
         const globalNum = globalOffset + i + 1;
         const artist = artistName(track);
-        // Show: [global/globalTotal] track — artist  (playlist)
         console.log(chalk.white.bold(`  [${globalNum}/${globalTotal}] `) +
             chalk.white(track.title) +
             chalk.gray(` — ${artist}`));
