@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# Prevent re-entry (post-commit hook calls this script)
+if [ -n "$TIDAL_RELEASING" ]; then
+  exit 0
+fi
+export TIDAL_RELEASING=1
+
 REPO="14h/tidal-sync"
 FORMULA="Formula/tidal-sync.rb"
 
