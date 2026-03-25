@@ -2,23 +2,19 @@
 set -e
 
 REPO="14h/tidal-sync"
-TAP_DIR="${TAP_DIR:-../tidal-sync}"
+TAP_DIR="${TAP_DIR:-$(dirname "$(git rev-parse --show-toplevel)")/tidal-sync-tap}"
 FORMULA="$TAP_DIR/Formula/tidal-sync.rb"
 
-# Get version from argument or bump patch
+cd "$(git rev-parse --show-toplevel)"
+
+# Bump patch version
 CURRENT=$(node -p "require('./package.json').version")
+IFS='.' read -r major minor patch <<< "$CURRENT"
+VERSION="$major.$minor.$((patch + 1))"
 
-if [ -n "$1" ]; then
-  VERSION="$1"
-else
-  IFS='.' read -r major minor patch <<< "$CURRENT"
-  VERSION="$major.$minor.$((patch + 1))"
-fi
+echo "Auto-releasing v$VERSION"
 
-echo "Releasing v$VERSION (current: $CURRENT)"
-echo
-
-# Update package.json version
+# Update package.json
 node -e "
 const fs = require('fs');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -27,16 +23,19 @@ fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
 "
 
 # Build
-npm run build
+npm run build 2>&1
 
-# Commit, tag, push
-git add -A
-git commit -m "Release v$VERSION"
+# Commit version bump (this won't re-trigger because message starts with "Release v")
+git add package.json
+git commit --no-verify -m "Release v$VERSION"
+
+# Tag
 git tag "v$VERSION"
+
+# Push everything
 git push && git push origin "v$VERSION"
 
-echo
-echo "Waiting for GitHub to process the tag..."
+echo "Waiting for GitHub..."
 sleep 3
 
 # Get SHA256
@@ -45,10 +44,8 @@ echo "SHA256: $SHA"
 
 # Update formula
 if [ ! -f "$FORMULA" ]; then
-  echo "Formula not found at $FORMULA"
-  echo "Set TAP_DIR to your tidal-sync repo path"
-  echo
-  echo "Manual update:"
+  echo "Tap formula not found at $FORMULA"
+  echo "Set TAP_DIR or clone the tap repo."
   echo "  url: https://github.com/$REPO/archive/refs/tags/v$VERSION.tar.gz"
   echo "  sha256: $SHA"
   exit 0
@@ -63,4 +60,4 @@ git commit -m "Update tidal-sync to v$VERSION"
 git push
 
 echo
-echo "Done! Run: brew update && brew upgrade tidal-sync"
+echo "Released v$VERSION"
