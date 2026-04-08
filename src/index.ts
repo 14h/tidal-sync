@@ -3,34 +3,17 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
-import { createInterface } from "node:readline/promises";
 import { loadToken, getDeviceCode, pollForToken, logout } from "./auth.js";
-import { setToken } from "./api.js";
+import { setToken, getUserProfile, getUserSubscription } from "./api.js";
 import { syncAllPlaylists } from "./sync.js";
 import type { TokenData } from "./types.js";
-
-async function askQuality(): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  console.log();
-  console.log(chalk.bold("  Download quality:"));
-  console.log("  1) m4a");
-  console.log("  2) flac");
-  console.log("  3) both");
-  console.log();
-  const answer = await rl.question(chalk.bold("  Choice (1/2/3): "));
-  rl.close();
-  const choice = answer.trim();
-  if (choice === "1" || choice === "m4a") return "m4a";
-  if (choice === "2" || choice === "flac") return "flac";
-  return "both";
-}
 
 async function ensureAuth(): Promise<TokenData> {
   const spinner = ora("Checking authentication...").start();
   const existing = await loadToken();
 
   if (existing) {
-    spinner.succeed(`Logged in (user ${existing.userId})`);
+    spinner.succeed("Authenticated");
     return existing;
   }
 
@@ -47,27 +30,44 @@ async function ensureAuth(): Promise<TokenData> {
 
   const authSpinner = ora("Waiting for authorization...").start();
   const token = await pollForToken(device.deviceCode, device.interval, device.expiresIn);
-  authSpinner.succeed(`Logged in as user ${token.userId} (${token.countryCode})`);
+  authSpinner.succeed("Authenticated");
 
   return token;
+}
+
+async function showUserInfo(): Promise<void> {
+  const spinner = ora("Loading profile...").start();
+  try {
+    const [profile, sub] = await Promise.all([getUserProfile(), getUserSubscription()]);
+    spinner.stop();
+
+    const name = [profile.firstName, profile.lastName].filter(Boolean).join(" ") || profile.username;
+
+    console.log();
+    console.log(chalk.bold("  Account"));
+    console.log(`  ${chalk.white(name)} ${chalk.gray(`(${profile.username})`)}`);
+    console.log(`  ${chalk.gray(profile.email)}`);
+    console.log(`  ${chalk.gray(profile.countryCode)} — ${chalk.cyan(sub.subscription.type)} ${chalk.gray(`(${sub.highestSoundQuality})`)}`);
+    console.log();
+  } catch {
+    spinner.stop();
+  }
 }
 
 const program = new Command();
 
 program
   .name("tidal-sync")
-  .description("Sync all your Tidal playlists at Master quality")
+  .description("Sync all your Tidal playlists at Master quality (FLAC)")
   .version("1.0.0")
-  .option("-o, --output <dir>", "Base output directory (creates flac/ and m4a/ inside)", ".")
-  .option("-q, --quality <type>", "Quality to download: flac, m4a, or both")
-  .action(async (opts: { output: string; quality: string }) => {
+  .option("-o, --output <dir>", "Base output directory", ".")
+  .action(async (opts: { output: string }) => {
     try {
       const token = await ensureAuth();
       setToken(token);
 
-      const quality = opts.quality ?? await askQuality();
-
-      await syncAllPlaylists(opts.output, quality);
+      await showUserInfo();
+      await syncAllPlaylists(opts.output);
     } catch (err) {
       console.error(chalk.red(`\nError: ${(err as Error).message}`));
       process.exit(1);

@@ -113,6 +113,33 @@ export interface ContributorsResponse {
   items: Contributor[];
 }
 
+export interface UserProfile {
+  id: number;
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  countryCode: string;
+  created: string;
+  picture: number | null;
+  newsletter: boolean;
+  acceptedEULA: boolean;
+  gender: string;
+  dateOfBirth: string;
+  facebookUid: number;
+}
+
+export interface UserSubscription {
+  startDate: string;
+  validUntil: string;
+  status: string;
+  subscription: { type: string; offlineGracePeriod: number };
+  highestSoundQuality: string;
+  premiumAccess: boolean;
+  canGetTrial: boolean;
+  paymentType: string;
+}
+
 export interface UserPlaylistsResponse {
   items: Playlist[];
   totalNumberOfItems: number;

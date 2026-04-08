@@ -7,10 +7,7 @@ import { downloadTracks, findNewTracks } from "./download.js";
 import type { AudioQuality } from "./api.js";
 import type { Track, Playlist } from "./types.js";
 
-const QUALITIES: { quality: AudioQuality; folder: string; label: string }[] = [
-  { quality: "HIGH", folder: "m4a", label: "High (AAC)" },
-  { quality: "HI_RES_LOSSLESS", folder: "flac", label: "Master (FLAC)" },
-];
+const QUALITY: AudioQuality = "HI_RES_LOSSLESS";
 
 interface PlaylistSyncInfo {
   name: string;
@@ -20,17 +17,7 @@ interface PlaylistSyncInfo {
   syncedCount: number;
 }
 
-export async function syncAllPlaylists(baseDir: string, qualityFilter: string = "both"): Promise<void> {
-  const selectedQualities = QUALITIES.filter((q) => {
-    if (qualityFilter === "both") return true;
-    return q.folder === qualityFilter;
-  });
-
-  if (selectedQualities.length === 0) {
-    console.log(chalk.red(`Unknown quality "${qualityFilter}". Use: flac, m4a, or both`));
-    return;
-  }
-
+export async function syncAllPlaylists(baseDir: string): Promise<void> {
   // Phase 1: Fetch all user playlists
   const fetchSpinner = ora("Fetching your playlists...").start();
   let userPlaylists: Playlist[];
@@ -63,76 +50,69 @@ export async function syncAllPlaylists(baseDir: string, qualityFilter: string = 
     }
   }
 
-  // Phase 3: Sync each quality
-  for (const q of selectedQualities) {
-    const outputDir = join(baseDir, q.folder);
-    await mkdir(outputDir, { recursive: true });
+  // Phase 3: Download new tracks (FLAC Master)
+  await mkdir(baseDir, { recursive: true });
 
-    console.log(chalk.bold(`\n  ${q.label}`));
+  const infos: PlaylistSyncInfo[] = [];
 
-    const infos: PlaylistSyncInfo[] = [];
+  for (const pl of playlists) {
+    const folder = join(baseDir, sanitize(pl.name));
+    const newTracks = await findNewTracks(pl.tracks, folder);
 
-    for (const pl of playlists) {
-      const folder = join(outputDir, sanitize(pl.name));
-      const newTracks = await findNewTracks(pl.tracks, folder);
+    infos.push({
+      name: pl.name,
+      playlistId: pl.playlistId,
+      totalTracks: pl.tracks.length,
+      newTracks,
+      syncedCount: pl.tracks.length - newTracks.length,
+    });
+  }
 
-      infos.push({
-        name: pl.name,
-        playlistId: pl.playlistId,
-        totalTracks: pl.tracks.length,
-        newTracks,
-        syncedCount: pl.tracks.length - newTracks.length,
-      });
-    }
+  const totalNew = infos.reduce((sum, p) => sum + p.newTracks.length, 0);
+  const totalTracks = infos.reduce((sum, p) => sum + p.totalTracks, 0);
+  const totalSynced = infos.reduce((sum, p) => sum + p.syncedCount, 0);
+  const withNew = infos.filter((p) => p.newTracks.length > 0);
 
-    const totalNew = infos.reduce((sum, p) => sum + p.newTracks.length, 0);
-    const totalTracks = infos.reduce((sum, p) => sum + p.totalTracks, 0);
-    const totalSynced = infos.reduce((sum, p) => sum + p.syncedCount, 0);
-    const withNew = infos.filter((p) => p.newTracks.length > 0);
+  console.log(
+    chalk.white(`  ${totalTracks} total, `) +
+    chalk.green(`${totalNew} to download, `) +
+    chalk.gray(`${totalSynced} synced`)
+  );
 
+  if (totalNew === 0) {
+    console.log(chalk.gray("  Up to date"));
+    return;
+  }
+
+  let globalDownloaded = 0;
+  let globalFailed = 0;
+
+  for (const info of withNew) {
     console.log(
-      chalk.white(`  ${totalTracks} total, `) +
-      chalk.green(`${totalNew} to download, `) +
-      chalk.gray(`${totalSynced} synced`)
+      chalk.cyan.bold(`\n  ${info.name}`) +
+      chalk.gray(` — ${info.newTracks.length} tracks`)
     );
 
-    if (totalNew === 0) {
-      console.log(chalk.gray("  Up to date"));
-      continue;
-    }
+    const folder = join(baseDir, sanitize(info.name));
 
-    let globalDownloaded = 0;
-    let globalFailed = 0;
+    const { downloaded, failed } = await downloadTracks(
+      info.newTracks,
+      folder,
+      info.name,
+      globalDownloaded,
+      totalNew,
+      QUALITY
+    );
 
-    for (const info of withNew) {
-      console.log(
-        chalk.cyan.bold(`\n  ${info.name}`) +
-        chalk.gray(` — ${info.newTracks.length} tracks`)
-      );
-
-      const folder = join(outputDir, sanitize(info.name));
-
-      const { downloaded, failed } = await downloadTracks(
-        info.newTracks,
-        folder,
-        info.name,
-        globalDownloaded,
-        totalNew,
-        q.quality
-      );
-
-      globalDownloaded += downloaded;
-      globalFailed += failed;
-    }
-
-    console.log();
-    console.log(chalk.bold("  Done! ") + chalk.green(`${globalDownloaded} downloaded`));
-    if (globalFailed > 0) {
-      console.log(chalk.red(`  ${globalFailed} failed`));
-    }
+    globalDownloaded += downloaded;
+    globalFailed += failed;
   }
 
   console.log();
+  console.log(chalk.bold("  Done! ") + chalk.green(`${globalDownloaded} downloaded`));
+  if (globalFailed > 0) {
+    console.log(chalk.red(`  ${globalFailed} failed`));
+  }
 }
 
 function sanitize(name: string): string {

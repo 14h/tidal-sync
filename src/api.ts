@@ -1,5 +1,7 @@
 import type {
   TokenData,
+  UserProfile,
+  UserSubscription,
   Playlist,
   Track,
   PlaylistItem,
@@ -64,10 +66,18 @@ function randomDelay(): Promise<void> {
   return sleep(500 + Math.random() * 4500);
 }
 
-// --- User Playlists ---
+// --- User Info ---
 
 export function getUserId(): number {
   return token.userId;
+}
+
+export async function getUserProfile(): Promise<UserProfile> {
+  return apiGet<UserProfile>(`users/${token.userId}`);
+}
+
+export async function getUserSubscription(): Promise<UserSubscription> {
+  return apiGet<UserSubscription>(`users/${token.userId}/subscription`);
 }
 
 export async function getUserPlaylists(): Promise<Playlist[]> {
