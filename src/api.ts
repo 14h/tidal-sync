@@ -4,6 +4,7 @@ import type {
   Track,
   PlaylistItem,
   PlaylistItemsResponse,
+  UserPlaylistsResponse,
   StreamResponse,
   StreamUrl,
   ManifestData,
@@ -61,6 +62,32 @@ function sleep(ms: number): Promise<void> {
 
 function randomDelay(): Promise<void> {
   return sleep(500 + Math.random() * 4500);
+}
+
+// --- User Playlists ---
+
+export function getUserId(): number {
+  return token.userId;
+}
+
+export async function getUserPlaylists(): Promise<Playlist[]> {
+  const playlists: Playlist[] = [];
+  let offset = 0;
+  const limit = 50;
+
+  while (true) {
+    const page = await apiGet<UserPlaylistsResponse>(
+      `users/${token.userId}/playlists`,
+      { limit: String(limit), offset: String(offset) }
+    );
+
+    playlists.push(...page.items);
+
+    if (page.items.length < limit) break;
+    offset += limit;
+  }
+
+  return playlists;
 }
 
 // --- Playlist ---

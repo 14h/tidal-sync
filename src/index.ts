@@ -5,8 +5,8 @@ import chalk from "chalk";
 import ora from "ora";
 import { createInterface } from "node:readline/promises";
 import { loadToken, getDeviceCode, pollForToken, logout } from "./auth.js";
-import { setToken, getPlaylist, getPlaylistTracks } from "./api.js";
-import { syncPlaylists, addPlaylist, loadConfig } from "./sync.js";
+import { setToken } from "./api.js";
+import { syncAllPlaylists } from "./sync.js";
 import type { TokenData } from "./types.js";
 
 async function askQuality(): Promise<string> {
@@ -23,13 +23,6 @@ async function askQuality(): Promise<string> {
   if (choice === "1" || choice === "m4a") return "m4a";
   if (choice === "2" || choice === "flac") return "flac";
   return "both";
-}
-
-function parsePlaylistId(input: string): string {
-  const urlMatch = input.match(/playlist\/([a-f0-9-]+)/i);
-  if (urlMatch) return urlMatch[1];
-  if (/^[a-f0-9-]+$/i.test(input)) return input;
-  throw new Error(`Could not parse playlist ID from: ${input}`);
 }
 
 async function ensureAuth(): Promise<TokenData> {
@@ -59,95 +52,22 @@ async function ensureAuth(): Promise<TokenData> {
   return token;
 }
 
-async function promptForPlaylist(configPath: string, outputDir: string, quality: string): Promise<void> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-
-  try {
-    while (true) {
-      console.log();
-      const input = await rl.question(chalk.bold("Paste a Tidal playlist URL (or 'q' to quit): "));
-      const trimmed = input.trim();
-
-      if (trimmed === "q" || trimmed === "quit" || trimmed === "") break;
-
-      try {
-        const playlistId = parsePlaylistId(trimmed);
-        const spinner = ora("Fetching playlist...").start();
-        const playlist = await getPlaylist(playlistId);
-        const tracks = await getPlaylistTracks(playlistId);
-        spinner.succeed(`Found "${playlist.title}" — ${tracks.length} tracks`);
-
-        await addPlaylist(configPath, playlist.title, trimmed);
-        console.log(chalk.green(`  Playlist will be synced on next run.`));
-
-        const answer = await rl.question(chalk.bold("  Download now? (Y/n): "));
-        if (answer.trim().toLowerCase() !== "n") {
-          await syncPlaylists(configPath, outputDir, quality);
-        }
-      } catch (err) {
-        console.error(chalk.red(`  Error: ${(err as Error).message}`));
-      }
-    }
-  } finally {
-    rl.close();
-  }
-}
-
 const program = new Command();
 
 program
   .name("tidal-sync")
-  .description("Sync Tidal playlists at Master quality")
+  .description("Sync all your Tidal playlists at Master quality")
   .version("1.0.0")
   .option("-o, --output <dir>", "Base output directory (creates flac/ and m4a/ inside)", ".")
-  .option("-c, --config <path>", "Path to playlists.json", "./playlists.json")
   .option("-q, --quality <type>", "Quality to download: flac, m4a, or both")
-  .argument("[playlist-url]", "Tidal playlist URL to add and sync")
-  .action(async (playlistUrl: string | undefined, opts: { output: string; config: string; quality: string }) => {
+  .action(async (opts: { output: string; quality: string }) => {
     try {
       const token = await ensureAuth();
       setToken(token);
-
-      // If a URL was passed, add it first
-      if (playlistUrl) {
-        const playlistId = parsePlaylistId(playlistUrl);
-        const spinner = ora("Fetching playlist...").start();
-        const playlist = await getPlaylist(playlistId);
-        spinner.succeed(`Added "${playlist.title}"`);
-        await addPlaylist(opts.config, playlist.title, playlistUrl);
-      }
 
       const quality = opts.quality ?? await askQuality();
 
-      const config = await loadConfig(opts.config);
-      const playlistCount = Object.keys(config).length;
-
-      if (playlistCount === 0) {
-        console.log(chalk.yellow("\nNo playlists configured yet.\n"));
-        await promptForPlaylist(opts.config, opts.output, quality);
-        return;
-      }
-
-      await syncPlaylists(opts.config, opts.output, quality);
-    } catch (err) {
-      console.error(chalk.red(`\nError: ${(err as Error).message}`));
-      process.exit(1);
-    }
-  });
-
-program
-  .command("add <playlist-url>")
-  .description("Add a playlist without downloading")
-  .option("-c, --config <path>", "Path to playlists.json", "./playlists.json")
-  .action(async (playlistUrl: string, opts: { config: string }) => {
-    try {
-      const token = await ensureAuth();
-      setToken(token);
-      const playlistId = parsePlaylistId(playlistUrl);
-      const spinner = ora("Fetching playlist...").start();
-      const playlist = await getPlaylist(playlistId);
-      spinner.succeed(`"${playlist.title}" — ${playlist.numberOfTracks} tracks`);
-      await addPlaylist(opts.config, playlist.title, playlistUrl);
+      await syncAllPlaylists(opts.output, quality);
     } catch (err) {
       console.error(chalk.red(`\nError: ${(err as Error).message}`));
       process.exit(1);

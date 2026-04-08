@@ -112,3 +112,10 @@ export interface Contributor {
 export interface ContributorsResponse {
   items: Contributor[];
 }
+
+export interface UserPlaylistsResponse {
+  items: Playlist[];
+  totalNumberOfItems: number;
+  offset: number;
+  limit: number;
+}

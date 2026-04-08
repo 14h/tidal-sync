@@ -1,74 +1,26 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import ora from "ora";
-import { getPlaylist, getPlaylistTracks } from "./api.js";
+import { getUserPlaylists, getPlaylistTracks } from "./api.js";
 import { downloadTracks, findNewTracks } from "./download.js";
 import type { AudioQuality } from "./api.js";
-import type { Track } from "./types.js";
+import type { Track, Playlist } from "./types.js";
 
 const QUALITIES: { quality: AudioQuality; folder: string; label: string }[] = [
   { quality: "HIGH", folder: "m4a", label: "High (AAC)" },
   { quality: "HI_RES_LOSSLESS", folder: "flac", label: "Master (FLAC)" },
 ];
 
-interface PlaylistsConfig {
-  [name: string]: string;
-}
-
 interface PlaylistSyncInfo {
   name: string;
   playlistId: string;
-  url: string;
   totalTracks: number;
   newTracks: Track[];
   syncedCount: number;
 }
 
-function parsePlaylistId(input: string): string {
-  const urlMatch = input.match(/playlist\/([a-f0-9-]+)/i);
-  if (urlMatch) return urlMatch[1];
-  if (/^[a-f0-9-]+$/i.test(input)) return input;
-  throw new Error(`Could not parse playlist ID from: ${input}`);
-}
-
-
-export async function loadConfig(configPath: string): Promise<PlaylistsConfig> {
-  try {
-    const raw = await readFile(configPath, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-async function saveConfig(configPath: string, config: PlaylistsConfig): Promise<void> {
-  await writeFile(configPath, JSON.stringify(config, null, 2));
-}
-
-export async function addPlaylist(
-  configPath: string,
-  playlistName: string,
-  playlistUrl: string
-): Promise<void> {
-  const config = await loadConfig(configPath);
-  const isNew = !(playlistName in config);
-  config[playlistName] = playlistUrl;
-  await saveConfig(configPath, config);
-  if (isNew) {
-    console.log(chalk.green(`  Added "${playlistName}" to sync list`));
-  }
-}
-
-export async function syncPlaylists(configPath: string, baseDir: string, qualityFilter: string = "both"): Promise<void> {
-  const config = await loadConfig(configPath);
-  const entries = Object.entries(config);
-
-  if (entries.length === 0) {
-    console.log(chalk.yellow("No playlists to sync."));
-    return;
-  }
-
+export async function syncAllPlaylists(baseDir: string, qualityFilter: string = "both"): Promise<void> {
   const selectedQualities = QUALITIES.filter((q) => {
     if (qualityFilter === "both") return true;
     return q.folder === qualityFilter;
@@ -79,26 +31,39 @@ export async function syncPlaylists(configPath: string, baseDir: string, quality
     return;
   }
 
-  // Phase 1: Fetch all playlists once
-  console.log(chalk.cyan.bold("\n  Checking playlists...\n"));
+  // Phase 1: Fetch all user playlists
+  const fetchSpinner = ora("Fetching your playlists...").start();
+  let userPlaylists: Playlist[];
+  try {
+    userPlaylists = await getUserPlaylists();
+    fetchSpinner.succeed(`Found ${userPlaylists.length} playlists`);
+  } catch (err) {
+    fetchSpinner.fail(`Failed to fetch playlists: ${(err as Error).message}`);
+    return;
+  }
+
+  if (userPlaylists.length === 0) {
+    console.log(chalk.yellow("\nNo playlists found in your library."));
+    return;
+  }
+
+  // Phase 2: Fetch tracks for each playlist
+  console.log(chalk.cyan.bold("\n  Loading tracks...\n"));
 
   const playlists: { name: string; playlistId: string; tracks: Track[] }[] = [];
 
-  for (const [name, urlOrId] of entries) {
-    const playlistId = parsePlaylistId(urlOrId);
-    const spinner = ora(`  ${name}`).start();
-
+  for (const pl of userPlaylists) {
+    const spinner = ora(`  ${pl.title}`).start();
     try {
-      const playlist = await getPlaylist(playlistId);
-      const tracks = await getPlaylistTracks(playlistId);
-      playlists.push({ name: playlist.title, playlistId, tracks });
-      spinner.succeed(`  ${name} — ${tracks.length} tracks`);
+      const tracks = await getPlaylistTracks(pl.uuid);
+      playlists.push({ name: pl.title, playlistId: pl.uuid, tracks });
+      spinner.succeed(`  ${pl.title} — ${tracks.length} tracks`);
     } catch (err) {
-      spinner.fail(`  ${name} — ${chalk.red((err as Error).message)}`);
+      spinner.fail(`  ${pl.title} — ${chalk.red((err as Error).message)}`);
     }
   }
 
-  // Phase 2: Sync each quality
+  // Phase 3: Sync each quality
   for (const q of selectedQualities) {
     const outputDir = join(baseDir, q.folder);
     await mkdir(outputDir, { recursive: true });
@@ -114,7 +79,6 @@ export async function syncPlaylists(configPath: string, baseDir: string, quality
       infos.push({
         name: pl.name,
         playlistId: pl.playlistId,
-        url: "",
         totalTracks: pl.tracks.length,
         newTracks,
         syncedCount: pl.tracks.length - newTracks.length,
