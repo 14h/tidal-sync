@@ -78,8 +78,13 @@ async function setMetadata(
   filePath: string,
   track: Track,
   index: number,
-  coverData: Buffer | null
+  coverData: Buffer | null,
+  codec: string
 ): Promise<void> {
+  if (codec.startsWith("mp4a")) {
+    return;
+  }
+
   try {
     const contributors = await getTrackContributors(track.id);
     const composers = contributors
@@ -171,7 +176,7 @@ export async function downloadTracks(
         const trackCover = track.album.cover
           ? await downloadCover(track.album.cover)
           : fallbackCover;
-        await setMetadata(filePath, track, i, trackCover);
+        await setMetadata(filePath, track, i, trackCover, stream.codec);
 
         console.log(chalk.green(`  ${label} — done`));
         downloaded++;
