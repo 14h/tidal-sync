@@ -177,28 +177,44 @@ function getFileExtension(codec: string, audioQuality: string): string {
 }
 
 function parseMpd(xml: string, trackId: number, audioQuality: string): StreamUrl {
-  const NS = "urn:mpeg:dash:schema:mpd:2011";
-
-  // Extract codec
   const codecMatch = xml.match(/codecs="([^"]+)"/);
-  const codec = codecMatch?.[1] ?? "flac";
+  const codec = codecMatch ? decodeXmlAttribute(codecMatch[1]) : "flac";
 
-  // Extract SegmentTemplate media URL pattern
-  const mediaMatch = xml.match(/media="([^"]+)"/);
-  if (!mediaMatch) throw new Error("No SegmentTemplate media attribute in MPD");
-  const urlTemplate = mediaMatch[1];
+  const templateMatch = xml.match(/<SegmentTemplate\b([^>]*)>/);
+  if (!templateMatch) throw new Error("No SegmentTemplate in MPD");
 
-  // Count segments from SegmentTimeline <S> elements
-  const sMatches = [...xml.matchAll(/<S\s[^>]*?d="(\d+)"[^>]*?(?:r="(\d+)")?[^>]*?\/>/g)];
-  let total = 0;
-  for (const m of sMatches) {
-    total += 1;
-    if (m[2]) total += parseInt(m[2], 10);
+  const templateAttrs = parseXmlAttributes(templateMatch[1]);
+  const urlTemplate = templateAttrs.media;
+  if (!urlTemplate) throw new Error("No SegmentTemplate media attribute in MPD");
+
+  const startNumber = templateAttrs.startNumber
+    ? parseInt(templateAttrs.startNumber, 10)
+    : 1;
+  if (!Number.isFinite(startNumber)) {
+    throw new Error("Invalid SegmentTemplate startNumber in MPD");
   }
 
-  // Generate URLs: segment 0 is init, then 1..total
+  let segmentCount = 0;
+  const sMatches = xml.matchAll(/<S\b([^>]*)\/?>/g);
+  for (const match of sMatches) {
+    const attrs = parseXmlAttributes(match[1]);
+    const repeat = attrs.r ? parseInt(attrs.r, 10) : 0;
+    if (!Number.isFinite(repeat) || repeat < 0) {
+      throw new Error("Unsupported SegmentTimeline repeat count in MPD");
+    }
+    segmentCount += repeat + 1;
+  }
+
+  if (segmentCount === 0) {
+    throw new Error("No media segments in MPD");
+  }
+
   const urls: string[] = [];
-  for (let i = 0; i <= total; i++) {
+  if (templateAttrs.initialization) {
+    urls.push(templateAttrs.initialization);
+  }
+
+  for (let i = startNumber; i < startNumber + segmentCount; i++) {
     urls.push(urlTemplate.replace("$Number$", String(i)));
   }
 
@@ -210,6 +226,25 @@ function parseMpd(xml: string, trackId: number, audioQuality: string): StreamUrl
     fileExtension: getFileExtension(codec, audioQuality),
     audioQuality,
   };
+}
+
+function parseXmlAttributes(input: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+
+  for (const match of input.matchAll(/\s([\w:-]+)="([^"]*)"/g)) {
+    attrs[match[1]] = decodeXmlAttribute(match[2]);
+  }
+
+  return attrs;
+}
+
+function decodeXmlAttribute(value: string): string {
+  return value
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 // --- Contributors ---
