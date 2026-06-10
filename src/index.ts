@@ -61,13 +61,14 @@ program
   .description("Sync all your Tidal playlists at Master quality (FLAC)")
   .version("1.0.0")
   .option("-o, --output <dir>", "Base output directory", ".")
-  .action(async (opts: { output: string }) => {
+  .option("--all", "Sync all playlists without prompting")
+  .action(async (opts: { output: string; all?: boolean }) => {
     try {
       const token = await ensureAuth();
       setToken(token);
 
       await showUserInfo();
-      await syncAllPlaylists(opts.output);
+      await syncAllPlaylists(opts.output, { selectPlaylists: !opts.all });
     } catch (err) {
       console.error(chalk.red(`\nError: ${(err as Error).message}`));
       process.exit(1);

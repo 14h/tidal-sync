@@ -17,6 +17,9 @@ brew install tidal-sync
 # Sync playlists from the signed-in Tidal user
 tidal-sync
 
+# Sync every playlist without prompting
+tidal-sync --all
+
 # Custom output directory
 tidal-sync -o ~/Music
 
@@ -25,14 +28,15 @@ tidal-sync logout
 ```
 
 On first run, you'll be prompted to log in via Tidal's device authorization flow.
+Before syncing, you'll be prompted with a checklist of playlists showing how many tracks still need to be synced, such as `(5 of 42 tracks)`. All playlists are selected initially; use the arrow keys to scroll, Space to deselect or reselect, and Enter to start syncing.
 
 ## Output structure
 
 ```
 ./
   Playlist Name/
-    01 - Artist - Track.m4a
-    02 - Artist - Track.m4a
+    Artist - Track.flac
+    Artist - Track.flac
 ```
 
 Re-running `tidal-sync` only downloads tracks that aren't already on disk.

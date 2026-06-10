@@ -169,7 +169,7 @@ export async function getStreamUrl(trackId: number, quality: AudioQuality = "HI_
 
 function getFileExtension(codec: string, audioQuality: string): string {
   if (codec === "flac") {
-    return audioQuality === "HI_RES_LOSSLESS" ? ".m4a" : ".flac";
+    return ".flac";
   }
   if (codec.startsWith("mp4")) return ".m4a";
   if (codec.startsWith("ac4") || codec.startsWith("mha1")) return ".mp4";
