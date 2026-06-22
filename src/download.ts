@@ -57,7 +57,7 @@ export async function findNewTracks(tracks: Track[], folder: string): Promise<Tr
     return tracks;
   }
   const onDisk = new Set(
-    existing.map((f) => {
+    existing.filter((f) => f.toLowerCase().endsWith(".flac")).map((f) => {
       const dot = f.lastIndexOf(".");
       return (dot > 0 ? f.substring(0, dot) : f).normalize();
     })
@@ -123,17 +123,36 @@ async function remuxFlacIfNeeded(filePath: string, codec: string): Promise<void>
   }
 }
 
+async function convertToFlac(inputPath: string, outputPath: string): Promise<void> {
+  const tempPath = `${outputPath}.convert-${process.pid}-${Date.now()}.flac`;
+
+  try {
+    await execFileAsync("ffmpeg", [
+      "-y",
+      "-v",
+      "error",
+      "-i",
+      inputPath,
+      "-map",
+      "0:a:0",
+      "-c:a",
+      "flac",
+      tempPath,
+    ]);
+    await rename(tempPath, outputPath);
+  } catch (err) {
+    await unlink(tempPath).catch(() => undefined);
+    throw new Error(`FLAC conversion failed: ${(err as Error).message}`);
+  }
+}
+
 async function setMetadata(
   filePath: string,
   track: Track,
   index: number,
   coverData: Buffer | null,
   codec: string
-): Promise<void> {
-  if (codec.startsWith("mp4a")) {
-    return;
-  }
-
+): Promise<{ coverEmbedded: boolean; metadataWritten: boolean; metadataSkipped: boolean }> {
   try {
     const contributors = await getTrackContributors(track.id);
     const composers = contributors
@@ -171,8 +190,10 @@ async function setMetadata(
 
     file.save();
     file.dispose();
+    return { coverEmbedded: Boolean(coverData), metadataWritten: true, metadataSkipped: false };
   } catch (err) {
     console.warn(chalk.yellow(`    Warning: metadata failed — ${(err as Error).message}`));
+    return { coverEmbedded: false, metadataWritten: false, metadataSkipped: false };
   }
 }
 
@@ -206,7 +227,7 @@ export async function downloadTracks(
 
       try {
         const stream = await getStreamUrl(track.id, quality);
-        const filename = buildFilename(track, stream.fileExtension);
+        const filename = buildFilename(track, ".flac");
         const filePath = join(folder, filename);
 
         if (await fileExists(filePath)) {
@@ -215,22 +236,39 @@ export async function downloadTracks(
           continue;
         }
 
+        const needsConversion = stream.codec !== "flac";
+        const downloadPath = needsConversion
+          ? `${filePath}.download-${process.pid}-${Date.now()}${stream.fileExtension}`
+          : filePath;
+
         const data = await downloadData(stream.urls);
-        await fsWriteFile(filePath, data);
+        await fsWriteFile(downloadPath, data);
 
         if (stream.encryptionKey) {
           const { key, nonce } = decryptSecurityToken(stream.encryptionKey);
-          await decryptFile(filePath, key, nonce);
+          await decryptFile(downloadPath, key, nonce);
         }
 
-        await remuxFlacIfNeeded(filePath, stream.codec);
+        if (needsConversion) {
+          try {
+            await convertToFlac(downloadPath, filePath);
+          } finally {
+            await unlink(downloadPath).catch(() => undefined);
+          }
+        } else {
+          await remuxFlacIfNeeded(filePath, stream.codec);
+        }
 
         const trackCover = track.album.cover
           ? await downloadCover(track.album.cover)
           : fallbackCover;
-        await setMetadata(filePath, track, i, trackCover, stream.codec);
+        const metadata = await setMetadata(filePath, track, i, trackCover, "flac");
+        const coverStatus = metadata.coverEmbedded
+          ? chalk.green("cover embedded")
+          : chalk.yellow(metadata.metadataSkipped || metadata.metadataWritten ? "cover missing" : "metadata failed");
 
-        console.log(chalk.green(`  ${label} — done`));
+        const formatStatus = needsConversion ? chalk.gray(" — converted to FLAC") : "";
+        console.log(chalk.green(`  ${label} — done`) + formatStatus + chalk.gray(" — ") + coverStatus);
         downloaded++;
       } catch (err) {
         console.error(chalk.red(`  ${label} — failed: ${(err as Error).message}`));
