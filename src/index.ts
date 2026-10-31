@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import chalk from "chalk";
 import ora from "ora";
 import { loadToken, getDeviceCode, pollForToken, logout } from "./auth.js";
 import { setToken, getUserProfile, getUserSubscription } from "./api.js";
 import { syncAllPlaylists } from "./sync.js";
+import { playlistIdFromUrl } from "./playlist.js";
 import type { TokenData } from "./types.js";
 
 async function ensureAuth(): Promise<TokenData> {
@@ -62,13 +63,15 @@ program
   .version("1.0.0")
   .option("-o, --output <dir>", "Base output directory", ".")
   .option("--all", "Sync all playlists without prompting")
-  .action(async (opts: { output: string; all?: boolean }) => {
+  .addOption(new Option("--playlist <url>", "Download one Tidal playlist by URL").conflicts("all"))
+  .action(async (opts: { output: string; all?: boolean; playlist?: string }) => {
     try {
+      const playlistId = opts.playlist ? playlistIdFromUrl(opts.playlist) : undefined;
       const token = await ensureAuth();
       setToken(token);
 
       await showUserInfo();
-      await syncAllPlaylists(opts.output, { selectPlaylists: !opts.all });
+      await syncAllPlaylists(opts.output, { selectPlaylists: !opts.all && !playlistId, playlistId });
     } catch (err) {
       console.error(chalk.red(`\nError: ${(err as Error).message}`));
       process.exit(1);

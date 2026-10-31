@@ -4,7 +4,7 @@ import { stdin as input, stdout as output } from "node:process";
 import * as readline from "node:readline";
 import chalk from "chalk";
 import ora from "ora";
-import { getUserPlaylists, getPlaylistTracks } from "./api.js";
+import { getUserPlaylists, getPlaylist, getPlaylistTracks } from "./api.js";
 import { downloadTracks, findNewTracks } from "./download.js";
 import type { AudioQuality } from "./api.js";
 import type { Track, Playlist } from "./types.js";
@@ -21,17 +21,21 @@ interface PlaylistSyncInfo {
 
 interface SyncOptions {
   selectPlaylists?: boolean;
+  playlistId?: string;
 }
 
 export async function syncAllPlaylists(baseDir: string, options: SyncOptions = {}): Promise<void> {
   // Phase 1: Fetch all user playlists
-  const fetchSpinner = ora("Fetching your playlists...").start();
+  const fetchSpinner = ora(options.playlistId ? "Fetching playlist..." : "Fetching your playlists...").start();
   let userPlaylists: Playlist[];
   try {
-    userPlaylists = await getUserPlaylists();
+    userPlaylists = options.playlistId
+      ? [await getPlaylist(options.playlistId)]
+      : await getUserPlaylists();
     fetchSpinner.succeed(`Found ${userPlaylists.length} playlists`);
   } catch (err) {
     fetchSpinner.fail(`Failed to fetch playlists: ${(err as Error).message}`);
+    if (options.playlistId) throw err;
     return;
   }
 
@@ -53,6 +57,7 @@ export async function syncAllPlaylists(baseDir: string, options: SyncOptions = {
       spinner.succeed(`  ${pl.title} — ${tracks.length} tracks`);
     } catch (err) {
       spinner.fail(`  ${pl.title} — ${chalk.red((err as Error).message)}`);
+      if (options.playlistId) throw err;
     }
   }
 
