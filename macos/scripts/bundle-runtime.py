@@ -56,4 +56,9 @@ def copy_binary(path, name=None, inherited=()):
 
 
 copy_binary(source, 'node')
+for filename in ('LICENSE', 'LICENSE.md'):
+    license_file = source.parent.parent / filename
+    if license_file.is_file():
+        shutil.copy2(license_file, destination / 'NODE-LICENSE.txt')
+        break
 print(f"Bundled Node with {len(copied) - 1} libraries")

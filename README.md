@@ -1,10 +1,26 @@
 # tidal-sync
 
-CLI tool to sync the signed-in user's Tidal playlists locally at Master quality.
+Native macOS app and CLI for downloading Tidal playlists and individual songs as FLAC.
 
-Each playlist gets its own subfolder inside the output directory.
+## Download the macOS app
 
-## Install
+**[Download for Apple Silicon (M1 and later)](https://github.com/14h/tidal-sync/releases/latest/download/Tidal-Sync-macos-arm64.zip)** · **[Download for Intel](https://github.com/14h/tidal-sync/releases/latest/download/Tidal-Sync-macos-x64.zip)**
+
+Requires **macOS 15 or later**. Download the ZIP for your Mac, unzip it, and drag **Tidal Sync.app** into Applications. Node is included; no source build is needed.
+
+Install FFmpeg for audio remuxing and conversion:
+
+```bash
+brew install ffmpeg
+```
+
+Open the app and sign in to Tidal. Select playlists or search the Tidal catalog, choose songs, and click Download. Playlist downloads use their own subfolders; individual songs go into `Tracks`.
+
+The app is ad-hoc signed and not notarized. If macOS blocks the first launch, approve it in **System Settings → Privacy & Security → Open Anyway**.
+
+[All releases and checksums](https://github.com/14h/tidal-sync/releases)
+
+## Install the CLI
 
 ```bash
 brew tap 14h/tidal-sync
@@ -45,7 +61,7 @@ Before syncing, you'll be prompted with a checklist of playlists showing how man
 
 Re-running `tidal-sync` only downloads tracks that aren't already on disk.
 
-## Native macOS app
+## Build the macOS app from source
 
 The SwiftUI app supports Tidal device login, a playlist sidebar with multiple selection, and a song table with individual checkboxes and Select All / Deselect All. The link field at the bottom of the sidebar adds playlists to your Tidal library. Download controls and progress stay at the bottom of the main area; the activity log can be toggled there. It shares authentication and the download engine with the CLI.
 
@@ -62,17 +78,15 @@ open "macos/build/Tidal Sync.app"
 
 You can drag the built app into Applications. Node and its non-system libraries are bundled; FFmpeg must be available in `/opt/homebrew/bin`, `/usr/local/bin`, or your PATH. The app requests the highest available audio quality and converts to FLAC when needed. Command-click or Shift-click to select multiple library playlists.
 
-The build targets the Mac's current architecture and is ad-hoc signed for local use. Distribution to other Macs requires appropriate Developer ID signing, notarization, and runtime license review. Closing an in-progress download with Stop keeps completed tracks; the next run skips them. An interrupted temporary file is never treated as a completed track.
+Local builds target the Mac's current architecture and are ad-hoc signed. GitHub releases provide separate Apple Silicon and Intel builds. Closing an in-progress download with Stop keeps completed tracks; the next run skips them. An interrupted temporary file is never treated as a completed track.
 
 Run `npm test` to verify the desktop bridge and download failure handling without contacting Tidal.
 
 ## Release
 
-```bash
-npm run release
-```
+Update the version in `package.json` and `package-lock.json`, commit, then push a matching `v` tag. The `macOS release` workflow builds both architectures and publishes the app ZIPs and checksums to GitHub Releases. It runs builds only.
 
-Bumps version, tags, pushes, and updates the Homebrew formula.
+`npm run release` remains the legacy CLI/Homebrew release script; it bumps the patch version and updates the Homebrew formula.
 
 ## License
 

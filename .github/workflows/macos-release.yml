@@ -1,0 +1,70 @@
+name: macOS release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build macOS (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build app
+        env:
+          MACOS_MIN_VERSION: '15.0'
+        run: npm run build:macos
+      - name: Package app
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          cd macos/build
+          ditto -c -k --sequesterRsrc --keepParent "Tidal Sync.app" "Tidal-Sync-macos-${ARCH}.zip"
+          shasum -a 256 "Tidal-Sync-macos-${ARCH}.zip" > "Tidal-Sync-macos-${ARCH}.zip.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            macos/build/Tidal-Sync-macos-*.zip
+            macos/build/Tidal-Sync-macos-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: macos-*
+          merge-multiple: true
+          path: release-assets
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --draft --title "Tidal Sync $TAG" --notes-file .github/release-notes.md
+          gh release upload "$TAG" release-assets/*
+          gh release edit "$TAG" --draft=false --latest
