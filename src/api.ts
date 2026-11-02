@@ -102,6 +102,40 @@ export async function getUserPlaylists(): Promise<Playlist[]> {
 
 // --- Playlist ---
 
+export async function searchTracks(query: string): Promise<Track[]> {
+  const page = await apiGet<{ items: Track[] }>("search/tracks", {
+    query, limit: "50", offset: "0",
+  });
+  return page.items;
+}
+
+export async function getTrack(id: number): Promise<Track> {
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error("Invalid track ID.");
+  return apiGet<Track>(`tracks/${id}`);
+}
+
+export async function getLibraryPlaylists(): Promise<Playlist[]> {
+  const playlists = new Map<string, Playlist>();
+  const limit = 50;
+  for (let offset = 0; ; offset += limit) {
+    const page = await apiGet<{ items: { playlist: Playlist }[] }>(
+      `users/${token.userId}/playlistsAndFavoritePlaylists`,
+      { limit: String(limit), offset: String(offset) }
+    );
+    for (const { playlist } of page.items) playlists.set(playlist.uuid, playlist);
+    if (page.items.length < limit) break;
+  }
+  return [...playlists.values()];
+}
+
+export async function addPlaylistToLibrary(id: string): Promise<void> {
+  const params = withCountry({ folderId: "root", uuids: id });
+  const res = await fetch(`https://api.tidalhifi.com/v2/my-collection/playlists/folders/add-favorites?${params}`, {
+    method: "PUT", headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Could not add playlist to your Tidal library: ${res.status} ${res.statusText}`);
+}
+
 export async function getPlaylist(id: string): Promise<Playlist> {
   return apiGet<Playlist>(`playlists/${id}`);
 }

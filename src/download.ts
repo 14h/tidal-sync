@@ -203,7 +203,8 @@ export async function downloadTracks(
   playlistName: string,
   globalOffset: number,
   globalTotal: number,
-  quality: AudioQuality = "HI_RES_LOSSLESS"
+  quality: AudioQuality = "HI_RES_LOSSLESS",
+  onProgress?: (completed: number) => void
 ): Promise<{ downloaded: number; failed: number }> {
   await mkdir(folder, { recursive: true });
 
@@ -237,26 +238,26 @@ export async function downloadTracks(
         }
 
         const needsConversion = stream.codec !== "flac";
-        const downloadPath = needsConversion
-          ? `${filePath}.download-${process.pid}-${Date.now()}${stream.fileExtension}`
-          : filePath;
+        // Keep incomplete downloads out of the final filename, including on app cancellation.
+        const downloadPath = `${filePath}.download-${process.pid}-${Date.now()}${stream.fileExtension}`;
 
-        const data = await downloadData(stream.urls);
-        await fsWriteFile(downloadPath, data);
+        try {
+          const data = await downloadData(stream.urls);
+          await fsWriteFile(downloadPath, data);
 
-        if (stream.encryptionKey) {
-          const { key, nonce } = decryptSecurityToken(stream.encryptionKey);
-          await decryptFile(downloadPath, key, nonce);
-        }
-
-        if (needsConversion) {
-          try {
-            await convertToFlac(downloadPath, filePath);
-          } finally {
-            await unlink(downloadPath).catch(() => undefined);
+          if (stream.encryptionKey) {
+            const { key, nonce } = decryptSecurityToken(stream.encryptionKey);
+            await decryptFile(downloadPath, key, nonce);
           }
-        } else {
-          await remuxFlacIfNeeded(filePath, stream.codec);
+
+          if (needsConversion) {
+            await convertToFlac(downloadPath, filePath);
+          } else {
+            await remuxFlacIfNeeded(downloadPath, stream.codec);
+            await rename(downloadPath, filePath);
+          }
+        } finally {
+          await unlink(downloadPath).catch(() => undefined);
         }
 
         const trackCover = track.album.cover
@@ -273,6 +274,8 @@ export async function downloadTracks(
       } catch (err) {
         console.error(chalk.red(`  ${label} — failed: ${(err as Error).message}`));
         failed++;
+      } finally {
+        onProgress?.(downloaded + failed);
       }
     }
   }

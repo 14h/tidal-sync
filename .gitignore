@@ -2,3 +2,5 @@ node_modules/
 dist/
 download/
 .sync-state.json
+macos/.build/
+macos/build/

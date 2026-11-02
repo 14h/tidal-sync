@@ -22,6 +22,7 @@ interface PlaylistSyncInfo {
 interface SyncOptions {
   selectPlaylists?: boolean;
   playlistId?: string;
+  onProgress?: (completed: number, total: number) => void;
 }
 
 export async function syncAllPlaylists(baseDir: string, options: SyncOptions = {}): Promise<void> {
@@ -93,6 +94,7 @@ export async function syncAllPlaylists(baseDir: string, options: SyncOptions = {
   const totalTracks = selectedInfos.reduce((sum, p) => sum + p.totalTracks, 0);
   const totalSynced = selectedInfos.reduce((sum, p) => sum + p.syncedCount, 0);
   const withNew = selectedInfos.filter((p) => p.newTracks.length > 0);
+  options.onProgress?.(0, totalNew);
 
   console.log(
     chalk.white(`  ${totalTracks} total, `) +
@@ -122,7 +124,8 @@ export async function syncAllPlaylists(baseDir: string, options: SyncOptions = {
       info.name,
       globalDownloaded,
       totalNew,
-      QUALITY
+      QUALITY,
+      completed => options.onProgress?.(globalDownloaded + globalFailed + completed, totalNew)
     );
 
     globalDownloaded += downloaded;
